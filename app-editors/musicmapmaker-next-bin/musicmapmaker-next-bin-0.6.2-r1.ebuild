@@ -10,7 +10,7 @@ inherit desktop unpacker xdg
 DESCRIPTION="Rhythm game beatmap editor (upstream binary)"
 HOMEPAGE="https://github.com/xiangCaO233/MusicMapMaker-Next"
 # 版本与 Debian 修订共同固定下载对象，不能替换为指向最新版本的 URL。
-SRC_URI="https://mmm.xiang233.top/apt/pool/main/m/musicmapmaker-next/musicmapmaker-next_${PV}-1_amd64.deb"
+SRC_URI="https://downloads.xiang233.top/pool/main/m/musicmapmaker-next/musicmapmaker-next_${PV}-2_amd64.deb"
 # DEB 不含普通源码顶层目录，解包内容直接作为安装输入。
 S="${WORKDIR}"
 

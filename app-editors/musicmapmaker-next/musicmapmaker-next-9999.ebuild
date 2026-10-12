@@ -80,6 +80,9 @@ src_unpack() {
 	# 仅在此阶段禁用其子模块处理；下方由 Git 按 gitlink 固定提交递归检出。
 	local EGIT_SUBMODULES=()
 	local EGIT_CLONE_TYPE=shallow
+	# git-r3 的裸缓存 HEAD 可能指向不存在的默认分支，LFS prune 会因此失败。
+	# single 仍只取当前提交的 LFS 对象，但不自动清理缓存，与 Git 历史深度无关。
+	local EGIT_LFS_CLONE_TYPE=single
 	# 白名单覆盖内置运行资源和桌面图标；预编译库和测试资源保留 LFS 指针。
 	# 同样的过滤同时作用于递归子模块，不能意外拉取 ICE 预编译依赖。
 	# fetchinclude 同时约束 fetch 与 smudge，checkout 不能再下载黑名单对象。

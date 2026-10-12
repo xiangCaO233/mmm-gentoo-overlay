@@ -3,7 +3,7 @@
 
 EAPI=8
 
-# git-r3 为主仓和递归子模块统一处理分支 HEAD 与其子模块提交；Git LFS 仅用于运行资源。
+# git-r3 处理主仓分支 HEAD；递归子模块单独浅克隆，避免 eclass 强制镜像全部历史。
 # 在 inherit 前启用，eclass 会自动加入 Git 与 Git LFS 的构建依赖。
 EGIT_LFS=1
 # Python 仅服务构建生成器，由 eclass 在已有可用解释器中选择一个版本。
@@ -76,6 +76,10 @@ BDEPEND="${PYTHON_DEPS}
 
 # Git 配置环境只影响本阶段和子进程，不修改用户 Git 或 Portage 配置。
 src_unpack() {
+	# git-r3 的子模块路径强制 mirror，不能仅靠 EGIT_CLONE_TYPE 限制历史。
+	# 仅在此阶段禁用其子模块处理；下方由 Git 按 gitlink 固定提交递归检出。
+	local EGIT_SUBMODULES=()
+	local EGIT_CLONE_TYPE=shallow
 	# 白名单覆盖内置运行资源和桌面图标；预编译库和测试资源保留 LFS 指针。
 	# 同样的过滤同时作用于递归子模块，不能意外拉取 ICE 预编译依赖。
 	# fetchinclude 同时约束 fetch 与 smudge，checkout 不能再下载黑名单对象。
@@ -86,6 +90,16 @@ src_unpack() {
 	local -x GIT_CONFIG_KEY_1=lfs.fetchexclude
 	local -x GIT_CONFIG_VALUE_1='3rdpty/prebuilts/**,3rdpty/**/prebuilts/**,tests/data/**'
 	git-r3_src_unpack
+	# 不使用 --remote，确保所有层级仍遵循各自父仓记录的提交。
+	# 固定提交不在分支顶端时 Git 会额外按提交获取，深度仍限制为一层。
+	# 禁止隐式 smudge 联网，随后只显式获取白名单内的子模块 LFS 资源。
+	GIT_LFS_SKIP_SMUDGE=1 git -C "${S}" submodule update \
+		--init --recursive --checkout --depth 1 --single-branch \
+		|| die "Shallow submodule checkout failed"
+	# 主仓 LFS 由 git-r3 处理；子模块共享本阶段的 include/exclude 环境配置。
+	# 全部资源下载保持在 unpack 阶段，失败不得退回完整历史克隆。
+	git -C "${S}" submodule foreach --recursive 'git lfs pull' \
+		|| die "Submodule LFS resource checkout failed"
 }
 
 # 显式选择所有依赖从固定子模块源码构建，禁止预编译库回退或 PGO 下载。

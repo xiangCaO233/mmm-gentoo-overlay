@@ -3,7 +3,7 @@
 
 EAPI=8
 
-# git-r3 为主仓和递归子模块统一处理固定提交；Git LFS 仅用于运行资源。
+# git-r3 为主仓和递归子模块统一处理分支 HEAD 与其子模块提交；Git LFS 仅用于运行资源。
 # 在 inherit 前启用，eclass 会自动加入 Git 与 Git LFS 的构建依赖。
 EGIT_LFS=1
 # Python 仅服务构建生成器，由 eclass 在已有可用解释器中选择一个版本。
@@ -13,14 +13,12 @@ inherit cmake desktop git-r3 python-any-r1 xdg
 DESCRIPTION="Rhythm game beatmap editor"
 HOMEPAGE="https://github.com/xiangCaO233/MusicMapMaker-Next"
 EGIT_REPO_URI="https://github.com/xiangCaO233/MusicMapMaker-Next.git"
-# v0.6.2 对应的完整提交哈希固定源码与子模块版本，避免标签移动改变输入。
-EGIT_COMMIT="eac67c6d3bf9c077f0e9c664688f0cf8ab827a05"
-# 完整提交不能使用仅支持标签的 shallow 模式，保留所需单分支历史。
-EGIT_MIN_CLONE_TYPE=single
-# git-r3 仍将固定提交的 VCS 获取标为 live；输入由上述哈希保持不变。
+# 每次获取 ci 分支最新 HEAD；子模块仍跟随该提交记录的版本。
+EGIT_BRANCH="ci"
+# live 包没有发行版关键字，用户必须显式接受 ** 后安装。
 LICENSE="GPL-3"
 SLOT="0"
-KEYWORDS="~amd64"
+KEYWORDS=""
 # 此初始版本与二进制包共享 glibc 范围，musl 编译支持尚未验证。
 REQUIRED_USE="elibc_glibc"
 # 上游测试资源不属于安装输入，关闭测试也避免额外拉取测试 LFS 对象。
@@ -98,6 +96,8 @@ src_configure() {
 		-DSOURCES_BUILD=ON
 		-DPROJECT_LINKAGE=static
 		-DICE_LINKAGE=static
+		# Gentoo 直接安装本机构建结果，无需 DEB 打包工具或 APT 信任材料。
+		-DMMM_ENABLE_DEB_PACKAGING=OFF
 		-DBUILD_TESTING=OFF
 		-DICE_BUILD_TESTS=OFF
 		-DMMM_PGO_INSTRUMENT=OFF

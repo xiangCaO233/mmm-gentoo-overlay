@@ -136,6 +136,15 @@ src_unpack() {
 	fi
 }
 
+# 过渡期 main 尚未包含 develop 的耗时开关，先补齐同一开关再关闭诊断。
+src_prepare() {
+	cmake_src_prepare
+	# 新上游已提供开关时不重复打补丁，避免未来更新出现重复应用冲突。
+	if ! grep -q 'option(MMM_ENABLE_BUILD_TIMING' "${S}/cmake/project-configure.cmake"; then
+		eapply "${FILESDIR}/0001-build-timing-option.patch"
+	fi
+}
+
 # 所有依赖仍从固定子模块源码构建；PGO 配置阶段禁止再次联网。
 src_configure() {
 	if use clang; then
@@ -155,6 +164,8 @@ src_configure() {
 		-DBUILD_TESTING=OFF
 		-DICE_BUILD_TESTS=OFF
 		-DMMM_PGO_INSTRUMENT=OFF
+		# 打包不采集编译耗时，也不执行链接后的耗时排序报告。
+		-DMMM_ENABLE_BUILD_TIMING=OFF
 		-DMMM_PGO_USE=$(usex pgo ON OFF)
 		-DMMM_SYNC_TRANSLATIONS_AND_DEFAULT_SKIN=OFF
 		-DMMM_DISABLE_CLANG_LTO=ON

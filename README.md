@@ -7,7 +7,7 @@
 提供两个包，任选其一：
 
 - `app-editors/musicmapmaker-next-bin`：直接安装二进制版。
-- `app-editors/musicmapmaker-next`：从最新 `ci` 分支源码编译。
+- `app-editors/musicmapmaker-next`：从最新 `main` 分支源码编译，属于可能领先于正式发布的开发版。
 
 ### 注册与安装
 
@@ -63,7 +63,7 @@ emerge --ask --oneshot app-editors/musicmapmaker-next
 Choose one package:
 
 - `app-editors/musicmapmaker-next-bin`: install the binary package.
-- `app-editors/musicmapmaker-next`: compile the latest `ci` branch source.
+- `app-editors/musicmapmaker-next`: compile the latest `main` branch source; this development build may be ahead of the latest release.
 
 ### Configure and install
 

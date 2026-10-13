@@ -13,8 +13,8 @@ inherit cmake desktop git-r3 python-any-r1 xdg
 DESCRIPTION="Rhythm game beatmap editor"
 HOMEPAGE="https://github.com/xiangCaO233/MusicMapMaker-Next"
 EGIT_REPO_URI="https://github.com/xiangCaO233/MusicMapMaker-Next.git"
-# 每次获取 ci 分支最新 HEAD；子模块仍跟随该提交记录的版本。
-EGIT_BRANCH="ci"
+# 每次获取 main 开发主线最新 HEAD；子模块仍跟随该提交记录的版本。
+EGIT_BRANCH="main"
 # live 包没有发行版关键字，用户必须显式接受 ** 后安装。
 LICENSE="GPL-3"
 SLOT="0"

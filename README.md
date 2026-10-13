@@ -7,7 +7,7 @@
 提供两个包，任选其一：
 
 - `app-editors/musicmapmaker-next-bin`：直接安装二进制版。
-- `app-editors/musicmapmaker-next`：从最新 `main` 分支源码编译，属于可能领先于正式发布的开发版。
+- `app-editors/musicmapmaker-next`：普通版本从对应正式发布 tag 全源码编译；`9999` 从最新 `main` 编译开发版。
 
 ### 注册与安装
 
@@ -30,7 +30,7 @@ emaint sync -r mmm-gentoo-overlay
 在 `/etc/portage/package.accept_keywords/musicmapmaker-next` 中按所选包加入一行：
 
 ```text
-app-editors/musicmapmaker-next::mmm-gentoo-overlay **
+app-editors/musicmapmaker-next::mmm-gentoo-overlay ~amd64
 ```
 
 源码安装：
@@ -66,10 +66,10 @@ emaint sync -r mmm-gentoo-overlay
 emerge --ask --update app-editors/musicmapmaker-next-bin
 ```
 
-源码版重新获取最新代码并编译：
+稳定源码版随正常更新选择最新发布版本。开发版需额外接受 `=app-editors/musicmapmaker-next-9999::mmm-gentoo-overlay **`，然后显式重新获取最新代码并编译：
 
 ```sh
-emerge --ask --oneshot app-editors/musicmapmaker-next
+emerge --ask --oneshot =app-editors/musicmapmaker-next-9999
 ```
 
 ## English
@@ -77,13 +77,13 @@ emerge --ask --oneshot app-editors/musicmapmaker-next
 Choose one package:
 
 - `app-editors/musicmapmaker-next-bin`: install the binary package.
-- `app-editors/musicmapmaker-next`: compile the latest `main` branch source; this development build may be ahead of the latest release.
+- `app-editors/musicmapmaker-next`: ordinary versions build the matching stable release tag from source; `9999` builds the latest development `main`.
 
 ### Configure and install
 
 With the Gentoo repository and `dev-vcs/git` already available, create `/etc/portage/repos.conf/mmm-gentoo-overlay.conf` as root using the `repos.conf` section shown above. This works without an eselect-repository public registration. Run `emaint sync -r mmm-gentoo-overlay`.
 
-Add `app-editors/musicmapmaker-next::mmm-gentoo-overlay **` to `/etc/portage/package.accept_keywords/musicmapmaker-next`, then run:
+Add `app-editors/musicmapmaker-next::mmm-gentoo-overlay ~amd64` to `/etc/portage/package.accept_keywords/musicmapmaker-next`, then run:
 
 ```sh
 emerge --ask app-editors/musicmapmaker-next::mmm-gentoo-overlay
@@ -112,8 +112,8 @@ emaint sync -r mmm-gentoo-overlay
 emerge --ask --update app-editors/musicmapmaker-next-bin
 ```
 
-To fetch the latest source and rebuild:
+Stable source versions follow normal package updates. For development builds, additionally accept `=app-editors/musicmapmaker-next-9999::mmm-gentoo-overlay **`, then fetch and rebuild explicitly:
 
 ```sh
-emerge --ask --oneshot app-editors/musicmapmaker-next
+emerge --ask --oneshot =app-editors/musicmapmaker-next-9999
 ```

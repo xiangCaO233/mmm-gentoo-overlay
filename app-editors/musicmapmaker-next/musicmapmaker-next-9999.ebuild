@@ -8,7 +8,10 @@ EAPI=8
 EGIT_LFS=1
 # Python 仅服务构建生成器，由 eclass 在已有可用解释器中选择一个版本。
 PYTHON_COMPAT=( python3_{11..15} )
-inherit cmake desktop git-r3 python-any-r1 xdg
+# LLVM 仅在 clang USE 开启时成为依赖；原始数据另由兼容的旧工具转换。
+LLVM_COMPAT=( {19..23} )
+LLVM_OPTIONAL=1
+inherit cmake desktop git-r3 llvm-r2 python-any-r1 xdg
 
 DESCRIPTION="Rhythm game beatmap editor"
 HOMEPAGE="https://github.com/xiangCaO233/MusicMapMaker-Next"
@@ -20,7 +23,8 @@ LICENSE="GPL-3"
 SLOT="0"
 KEYWORDS=""
 # 此初始版本与二进制包共享 glibc 范围，musl 编译支持尚未验证。
-REQUIRED_USE="elibc_glibc"
+IUSE="clang pgo"
+REQUIRED_USE="elibc_glibc pgo? ( clang ) clang? ( ${LLVM_REQUIRED_USE} )"
 # 上游测试资源不属于安装输入，关闭测试也避免额外拉取测试 LFS 对象。
 RESTRICT="test"
 
@@ -63,6 +67,7 @@ DEPEND="${RDEPEND}
 # Meson 配置 Rubber Band，不能因顶层工程使用 CMake 而忽略它。
 # Perl 和 Python 服务子工程生成工具；这些工具不会安装到应用目录。
 # Wayland scanner 在构建时生成协议代码，无需成为主程序运行依赖。
+# LLVM 23 的 raw 格式为 11；额外用 LLVM 22 将网站格式 10 转为 indexed profdata。
 BDEPEND="${PYTHON_DEPS}
 	>=dev-build/cmake-3.31
 	dev-build/make
@@ -72,7 +77,21 @@ BDEPEND="${PYTHON_DEPS}
 	dev-lang/nasm
 	dev-util/wayland-scanner
 	virtual/pkgconfig
+	clang? ( $(llvm_gen_dep '
+		llvm-core/clang:${LLVM_SLOT}
+		pgo? ( llvm-core/llvm:${LLVM_SLOT} )
+	') )
+	pgo? ( net-misc/curl[ssl] )
+	pgo? ( llvm_slot_23? ( llvm-core/llvm:22 ) )
 "
+
+# 可选 LLVM 不自动导出 setup；显式保留 Python 解释器选择和 LLVM slot 设置。
+pkg_setup() {
+	python-any-r1_pkg_setup
+	if use clang; then
+		llvm-r2_pkg_setup
+	fi
+}
 
 # Git 配置环境只影响本阶段和子进程，不修改用户 Git 或 Portage 配置。
 src_unpack() {
@@ -103,10 +122,28 @@ src_unpack() {
 	# 全部资源下载保持在 unpack 阶段，失败不得退回完整历史克隆。
 	git -C "${S}" submodule foreach --recursive 'git lfs pull' \
 		|| die "Submodule LFS resource checkout failed"
+	if use pgo; then
+		# 此 live 端点每次实时归档，不能放入 SRC_URI 缓存为固定历史 distfile。
+		# 所有网络访问限定于 unpack；后续配置只消费本次下载的本地快照。
+		curl --fail --location --retry 3 --connect-timeout 30 --max-time 600 \
+			--output "${T}/pgo-profiles.tar.gz" \
+			https://mmm.xiang233.top/api/performance/download \
+			|| die "PGO profile download failed"
+		# 只读取普通 profraw 成员并平铺，不能直接解压远程归档中的任意路径。
+		"${PYTHON}" "${FILESDIR}/pgo-flatten.py" \
+			"${T}/pgo-profiles.tar.gz" "${WORKDIR}/pgo-profiles" \
+			|| die "PGO profile extraction failed"
+	fi
 }
 
-# 显式选择所有依赖从固定子模块源码构建，禁止预编译库回退或 PGO 下载。
+# 所有依赖仍从固定子模块源码构建；PGO 配置阶段禁止再次联网。
 src_configure() {
+	if use clang; then
+		# 绝对路径固定系统 slot 的工具，递归 CMake、Meson 和 Make 同样继承。
+		local llvm_bin="$(get_llvm_prefix -b)/bin"
+		export CC="${llvm_bin}/clang" CXX="${llvm_bin}/clang++"
+		export AR="${llvm_bin}/llvm-ar" RANLIB="${llvm_bin}/llvm-ranlib"
+	fi
 	# 子模块库采用静态偏好，不等于静态 glibc；宿主图形接口仍动态链接。
 	# 关闭 Clang ThinLTO 避免上游优化策略额外要求不声明的 LLVM 链接工具。
 	local mycmakeargs=(
@@ -118,10 +155,24 @@ src_configure() {
 		-DBUILD_TESTING=OFF
 		-DICE_BUILD_TESTS=OFF
 		-DMMM_PGO_INSTRUMENT=OFF
-		-DMMM_PGO_USE=OFF
+		-DMMM_PGO_USE=$(usex pgo ON OFF)
 		-DMMM_SYNC_TRANSLATIONS_AND_DEFAULT_SKIN=OFF
 		-DMMM_DISABLE_CLANG_LTO=ON
 	)
+	if use pgo; then
+		# 新编译器不能直接读旧 raw，但可以读旧工具生成的 indexed profdata。
+		# 23 使用 22 转换当前格式 10；不修改原始格式号，不忽略合并失败。
+		local profdata_bin="${llvm_bin}/llvm-profdata"
+		if [[ ${LLVM_SLOT} == 23 ]]; then
+			profdata_bin="${BROOT}/usr/lib/llvm/22/bin/llvm-profdata"
+		fi
+		# 现有合并脚本生成构建目录内的 profdata，业务代码由所选 Clang 优化。
+		mycmakeargs+=(
+			-DMMM_PGO_PROFILE_DIR="${WORKDIR}/pgo-profiles"
+			-DLLVM_PROFDATA="${profdata_bin}"
+			-DPython3_EXECUTABLE="${PYTHON}"
+		)
+	fi
 	# CMake eclass 保留 Portage 的编译器、用户优化参数和出源码树构建约定。
 	cmake_src_configure
 }

@@ -5,6 +5,10 @@
     <email>odokoei@outlook.com</email>
     <name>xiangCaO233</name>
   </maintainer>
+  <use>
+    <flag name="clang">Build all source dependencies with the selected system Clang compiler</flag>
+    <flag name="pgo">Download current PGO profiles and optimize with Clang (requires clang)</flag>
+  </use>
   <upstream>
     <remote-id type="github">xiangCaO233/MusicMapMaker-Next</remote-id>
   </upstream>

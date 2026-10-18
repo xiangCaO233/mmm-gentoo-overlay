@@ -6,6 +6,7 @@
     <name>xiangCaO233</name>
   </maintainer>
   <use>
+    <flag name="llvm-auto">Prefer the highest installed supported LLVM toolchain</flag>
     <flag name="clang">Build all source dependencies with the selected system Clang compiler</flag>
     <flag name="pgo">Download current PGO profiles and optimize with Clang (requires clang)</flag>
   </use>

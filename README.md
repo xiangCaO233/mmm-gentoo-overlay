@@ -47,7 +47,7 @@ emerge --ask app-editors/musicmapmaker-next-bin::mmm-gentoo-overlay
 
 ### Clang 与 PGO
 
-源码包提供 `clang`、`pgo` 两个 USE，默认均关闭。`pgo` 必须同时启用 `clang`；只启用 `clang` 时使用系统所选 LLVM slot 的 Clang 全源码构建，不采集或使用 PGO。未启用 `clang` 时保留 Portage 的编译器配置。
+源码包提供 `clang`、`pgo` 两个 USE，默认均关闭；`llvm-auto` 默认开启。`pgo` 必须同时启用 `clang`；只启用 `clang` 时优先使用构建机已安装且受支持的最高 LLVM slot 全源码构建，不采集或使用 PGO。未启用 `clang` 时保留 Portage 的编译器配置。
 
 如需 PGO，在 `/etc/portage/package.use/musicmapmaker-next` 中加入：
 
@@ -55,9 +55,13 @@ emerge --ask app-editors/musicmapmaker-next-bin::mmm-gentoo-overlay
 app-editors/musicmapmaker-next clang pgo
 ```
 
-每次重新构建会先获取所选版本的源码（稳定版为固定 tag，开发版为 `main`），再从网站实时下载全部已完成的 `.profraw`，按日期及文件名平铺到本次构建的 `pgo-profiles` 目录。配置阶段由上游 `scripts/pgo_merge.py` 调用兼容的 `llvm-profdata` 合并，再通过 `MMM_PGO_USE=ON` 优化业务代码；第三方依赖仍从源码构建，不应用 PGO。下载、解包或合并失败时停止，不静默退回普通构建。
+每次重新构建会先获取所选版本的源码（稳定版为固定 tag，开发版为 `main`），再从网站实时下载全部已完成的 `.profraw`，按日期及文件名平铺到本次构建的 `pgo-profiles` 目录。配置阶段按 raw 格式分组，用兼容的 `llvm-profdata` 转成 indexed 数据，再由所选 LLVM 完成最终合并，再通过 `MMM_PGO_USE=ON` 优化业务代码；第三方依赖仍从源码构建，不应用 PGO。下载、解包或合并失败时停止，不静默退回普通构建。
 
-下载仅发生在 `src_unpack`，后续配置和编译不联网。每次构建使用下载开始时的完整采样快照，新上传数据在下次重编译时纳入。支持 `llvm_slot_19` 至 `llvm_slot_23`，默认选择 22。当前原始采样为格式 10；选择 Clang 23 时额外依赖 LLVM 22，由它现场合并成 indexed `.profdata`，再交给 Clang 23 优化。其余 slot 使用同版本工具；如果服务器未来采样格式变化，需要同步更新转换工具，不能修改原始格式号或忽略不兼容文件。开发主线的代码变化也可能使部分函数采样不再匹配，PGO 不保证对所有新代码都有覆盖，也不保证一定提速。
+下载仅发生在 `src_unpack`，后续配置和编译不联网。每次构建使用下载开始时的完整采样快照，新上传数据在下次重编译时纳入。支持 LLVM 19 至 23；默认 `llvm-auto` 按版本从高到低选择已安装的兼容 Clang，不固定为 eclass 的默认 22。需要手动选择时关闭 `llvm-auto` 并设置 `llvm_slot_*`。
+
+PGO 当前至少需要 LLVM 23，旧版编译器无法消费新格式的 indexed 数据。格式 10 使用兼容的 LLVM 22 转换，格式 11 使用 LLVM 23 转换；最终合并和业务编译使用自动选择的最高兼容 LLVM。旧工具只服务原始数据转换，不用于降级编译。任何一组无法转换都会终止，不修改原始格式号、不丢弃采样。历史 `0.6.2` 配方保留原行为，当前 `0.6.3` 与 `9999` 使用新策略。
+
+开发主线的代码变化也可能使部分函数采样不再匹配，PGO 不保证对所有新代码都有覆盖，也不保证一定提速。
 
 ### 更新
 
@@ -93,7 +97,7 @@ For the binary package, use `musicmapmaker-next-bin` in both the keyword entry a
 
 ### Clang and PGO
 
-The source package provides `clang` and `pgo`, both disabled by default. `pgo` requires `clang`. With only `clang` enabled, all sources are built with the selected system LLVM slot's Clang, without PGO instrumentation or optimization. Without `clang`, Portage's compiler configuration is preserved.
+The source package provides `clang` and `pgo`, both disabled by default; `llvm-auto` is enabled by default. `pgo` requires `clang`. With only `clang` enabled, all sources are built with the highest installed supported Clang, without PGO instrumentation or optimization. Without `clang`, Portage's compiler configuration is preserved.
 
 To enable PGO, add to `/etc/portage/package.use/musicmapmaker-next`:
 
@@ -101,9 +105,11 @@ To enable PGO, add to `/etc/portage/package.use/musicmapmaker-next`:
 app-editors/musicmapmaker-next clang pgo
 ```
 
-Each rebuild fetches the selected stable tag or development `main`, downloads a fresh archive of all completed website `.profraw` files during `src_unpack`, and flattens them into a build-local `pgo-profiles` directory using date-prefixed names. During configuration, upstream `scripts/pgo_merge.py` merges the profiles with a compatible `llvm-profdata`. `MMM_PGO_USE=ON` optimizes application code; dependencies are still built from source without PGO. Download, extraction or merge failures stop the build instead of silently disabling PGO. Configuration and compilation do not access the network.
+Each rebuild fetches the selected stable tag or development `main`, downloads a fresh archive of all completed website `.profraw` files during `src_unpack`, and flattens them into a build-local `pgo-profiles` directory using date-prefixed names. During configuration, raw profiles are converted by format group and the selected LLVM merges the resulting indexed profiles. `MMM_PGO_USE=ON` optimizes application code; dependencies are still built from source without PGO. Download, extraction or merge failures stop the build instead of silently disabling PGO. Configuration and compilation do not access the network.
 
-Uploads completed after the download starts enter the next rebuild. Supported slots are `llvm_slot_19` through `llvm_slot_23`, defaulting to 22. Current raw profiles use format 10. With Clang 23, LLVM 22 is an additional build dependency that converts these profiles into backward-compatible indexed `.profdata` on the build machine. Other slots use their matching tools. If the server's raw format changes, the conversion tools need updating; raw version numbers must not be patched and incompatible files must not be silently discarded. Profiles from released versions may not match every function on the development branch, and do not guarantee a performance improvement.
+Uploads completed after the download starts enter the next rebuild. LLVM 19 through 23 are supported. With default `llvm-auto`, the highest installed compatible toolchain is selected rather than the eclass default of 22. Disable `llvm-auto` and select `llvm_slot_*` to choose manually.
+
+PGO currently requires LLVM 23 or newer to consume the indexed format. LLVM 22 converts raw version 10 and LLVM 23 converts version 11; the selected highest compatible LLVM performs the final merge and compilation. Conversion failures stop the build without discarding profiles or rewriting raw headers. This policy applies to `0.6.3` and `9999`; the historical `0.6.2` recipe retains its previous behavior. Development code may not match all released profiles, and a performance gain is not guaranteed.
 
 ### Update
 

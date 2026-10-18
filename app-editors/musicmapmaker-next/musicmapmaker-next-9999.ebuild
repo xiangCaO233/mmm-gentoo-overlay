@@ -23,8 +23,8 @@ LICENSE="GPL-3"
 SLOT="0"
 KEYWORDS=""
 # 此初始版本与二进制包共享 glibc 范围，musl 编译支持尚未验证。
-IUSE="clang pgo"
-REQUIRED_USE="elibc_glibc pgo? ( clang ) clang? ( ${LLVM_REQUIRED_USE} )"
+IUSE="clang pgo +llvm-auto"
+REQUIRED_USE="elibc_glibc pgo? ( clang !llvm-auto? ( llvm_slot_23 ) ) clang? ( !llvm-auto? ( ${LLVM_REQUIRED_USE} ) )"
 # 上游测试资源不属于安装输入，关闭测试也避免额外拉取测试 LFS 对象。
 RESTRICT="test"
 
@@ -61,6 +61,22 @@ DEPEND="${RDEPEND}
 	dev-util/vulkan-headers
 	dev-libs/wayland-protocols
 "
+# 输出静态候选依赖，元数据阶段禁止查询已安装软件影响依赖内容。
+# minimum 为最低支持 slot；PGO 当前 indexed 格式要求编译工具至少为 23。
+# 候选逆序使依赖解析优先保留已安装的高版本，实际选择在 pkg_setup 复核。
+# 不在这里使用 has_version；静态 BDEPEND 必须能在其他用户机器一致生成。
+# 只有 pkg_setup 读取已安装数据库，防止生成依赖缓存后锁死当前主机版本。
+source_llvm_auto_deps() {
+	local minimum=${1} index slot
+	echo '|| ('
+	for (( index=${#LLVM_COMPAT[@]}-1; index>=0; --index )); do
+		slot=${LLVM_COMPAT[index]}
+		(( slot >= minimum )) || continue
+		echo "( llvm-core/clang:${slot} pgo? ( llvm-core/llvm:${slot} ) )"
+	done
+	echo ')'
+}
+
 # CMake、Meson 和 Make 分别服务主工程及音频子工程；nasm 服务音频汇编。
 # 版本最低值来自主工程 cmake_minimum_required，不能只依赖 eclass 默认值。
 # 主生成器使用 Ninja，音频 ExternalProject 仍有独立的 Make 构建步骤。
@@ -68,6 +84,7 @@ DEPEND="${RDEPEND}
 # Perl 和 Python 服务子工程生成工具；这些工具不会安装到应用目录。
 # Wayland scanner 在构建时生成协议代码，无需成为主程序运行依赖。
 # LLVM 23 的 raw 格式为 11；额外用 LLVM 22 将网站格式 10 转为 indexed profdata。
+# 自动与手动分支互斥，不把 eclass 默认 slot 作为额外固定依赖。
 BDEPEND="${PYTHON_DEPS}
 	>=dev-build/cmake-3.31
 	dev-build/make
@@ -77,18 +94,46 @@ BDEPEND="${PYTHON_DEPS}
 	dev-lang/nasm
 	dev-util/wayland-scanner
 	virtual/pkgconfig
-	clang? ( $(llvm_gen_dep '
-		llvm-core/clang:${LLVM_SLOT}
-		pgo? ( llvm-core/llvm:${LLVM_SLOT} )
-	') )
-	pgo? ( net-misc/curl[ssl] )
-	pgo? ( llvm_slot_23? ( llvm-core/llvm:22 ) )
+	clang? (
+		llvm-auto? (
+			pgo? ( $(source_llvm_auto_deps 23) )
+			!pgo? ( $(source_llvm_auto_deps 19) )
+		)
+		!llvm-auto? ( $(llvm_gen_dep '
+			llvm-core/clang:${LLVM_SLOT}
+			pgo? ( llvm-core/llvm:${LLVM_SLOT} )
+		') )
+	)
+	pgo? ( net-misc/curl[ssl] llvm-core/llvm:22 )
 "
+
+# 选择构建机已安装的最高兼容工具链，不因 eclass 默认 slot 而降级。
+# 只有关闭 llvm-auto 才遵循用户显式选择的 llvm_slot_*，兼顾手动回退。
+# PGO 的最终 indexed 数据不能反向交给旧编译器，故该模式至少使用 LLVM 23。
+source_select_llvm() {
+	use llvm-auto || return 0
+	local index slot
+	for (( index=${#LLVM_COMPAT[@]}-1; index>=0; --index )); do
+		slot=${LLVM_COMPAT[index]}
+		if use pgo; then
+			(( slot >= 23 )) || continue
+			has_version -b "llvm-core/llvm:${slot}" || continue
+		fi
+		has_version -b "llvm-core/clang:${slot}" || continue
+		# 通过 BDEPEND 的已安装数据库检查后发布给后续所有构建阶段。
+		# llvm-r2 的路径及 ABI 设置仍由既有 eclass 负责，不手工替换系统软链接。
+		export LLVM_SLOT=${slot}
+		einfo "自动选择已安装的最高兼容 LLVM ${LLVM_SLOT}"
+		return
+	done
+	die "No installed compatible LLVM toolchain; resolve BDEPEND first"
+}
 
 # 可选 LLVM 不自动导出 setup；显式保留 Python 解释器选择和 LLVM slot 设置。
 pkg_setup() {
 	python-any-r1_pkg_setup
 	if use clang; then
+		source_select_llvm
 		llvm-r2_pkg_setup
 	fi
 }
@@ -171,15 +216,18 @@ src_configure() {
 		-DMMM_DISABLE_CLANG_LTO=ON
 	)
 	if use pgo; then
-		# 新编译器不能直接读旧 raw，但可以读旧工具生成的 indexed profdata。
-		# 23 使用 22 转换当前格式 10；不修改原始格式号，不忽略合并失败。
+		# 原始采样按版本分别读取，最终 indexed 数据由当前 LLVM 合并。
+		# 旧 LLVM 仅作 raw 兼容转换，不参与本包编译或最终优化数据生成。
+		# 当前阶段只消费 unpack 已下载的文件，不重新请求服务器数据。
+		# 最终合并器和 CC/CXX 来自同一个自动或手动选择的 LLVM slot。
 		local profdata_bin="${llvm_bin}/llvm-profdata"
-		if [[ ${LLVM_SLOT} == 23 ]]; then
-			profdata_bin="${BROOT}/usr/lib/llvm/22/bin/llvm-profdata"
-		fi
-		# 现有合并脚本生成构建目录内的 profdata，业务代码由所选 Clang 优化。
+		"${PYTHON}" "${FILESDIR}/pgo-merge.py" \
+			--profdata "${profdata_bin}" \
+			--input-dir "${WORKDIR}/pgo-profiles" \
+			--output "${WORKDIR}/pgo-merged.profdata" \
+			|| die "PGO version-compatible merge failed"
 		mycmakeargs+=(
-			-DMMM_PGO_PROFILE_DIR="${WORKDIR}/pgo-profiles"
+			-DMMM_PGO_DATA="${WORKDIR}/pgo-merged.profdata"
 			-DLLVM_PROFDATA="${profdata_bin}"
 			-DPython3_EXECUTABLE="${PYTHON}"
 		)
